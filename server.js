@@ -26,7 +26,8 @@ const corsOptions = {
       process.env.FRONTEND_URL,
       'http://localhost:3001',
       'http://localhost:3000',
-      'https://*.vercel.app'
+      'https://*.vercel.app',
+      'https://autoluxe-steel.vercel.app'  
     ].filter(Boolean);
     
     if (!origin || allowedOrigins.some(allowedOrigin => {
@@ -42,7 +43,8 @@ const corsOptions = {
     }
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'cache-control'],
+  exposedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'cache-control'],
   credentials: true,
   optionsSuccessStatus: 200
 };
