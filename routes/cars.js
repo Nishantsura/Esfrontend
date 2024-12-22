@@ -381,4 +381,40 @@ router.delete('/admin/:id', requireAdmin, setCacheControl(0), async (req, res) =
   }
 });
 
+// Search cars
+router.get('/search', setCacheControl(60), async (req, res) => {
+  try {
+    const { query } = req.query;
+    if (!query) {
+      return res.json([]);
+    }
+
+    // Convert query to lowercase for case-insensitive search
+    const searchQuery = query.toLowerCase();
+
+    // Get all cars and filter them
+    const snapshot = await carsRef.get();
+    const results = [];
+    
+    snapshot.forEach(doc => {
+      const car = { id: doc.id, ...doc.data() };
+      // Search in name, brand, model, and description
+      if (
+        car.name?.toLowerCase().includes(searchQuery) ||
+        car.brand?.toLowerCase().includes(searchQuery) ||
+        car.model?.toLowerCase().includes(searchQuery) ||
+        car.description?.toLowerCase().includes(searchQuery)
+      ) {
+        results.push(car);
+      }
+    });
+
+    // Limit to 10 results
+    res.json(results.slice(0, 10));
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;
