@@ -5,8 +5,80 @@ const router = express.Router();
 const db = admin.firestore();
 const categoriesRef = db.collection('categories');
 
+// Cache-Control middleware
+const setCacheControl = (duration) => (req, res, next) => {
+  res.set('Cache-Control', `public, max-age=${duration}`);
+  next();
+};
+
+// Admin middleware
+const requireAdmin = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    console.log('Auth header:', authHeader); // Debug log
+
+    if (!authHeader?.startsWith('Bearer ')) {
+      console.log('No bearer token'); // Debug log
+      return res.status(401).json({ error: 'No bearer token' });
+    }
+
+    const token = authHeader.split('Bearer ')[1];
+    console.log('Verifying token...'); // Debug log
+    
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    console.log('Decoded token:', decodedToken); // Debug log
+    
+    if (!decodedToken.email?.endsWith('@autoluxe.com')) {
+      console.log('Not an autoluxe email:', decodedToken.email); // Debug log
+      return res.status(403).json({ error: 'Not an authorized email domain' });
+    }
+
+    req.user = decodedToken;
+    next();
+  } catch (error) {
+    console.error('Auth error:', error);
+    res.status(401).json({ 
+      error: 'Authentication failed',
+      details: error.message 
+    });
+  }
+};
+
+// Get all categories with pagination
+router.get('/', setCacheControl(600), async (req, res) => {
+  try {
+    const { page = 1, limit = 10, sort = 'name' } = req.query;
+    const pageSize = parseInt(limit);
+    const offset = (parseInt(page) - 1) * pageSize;
+
+    let query = categoriesRef;
+    if (sort) {
+      query = query.orderBy(sort);
+    }
+
+    const snapshot = await query.get();
+    const total = snapshot.size;
+    
+    const categories = [];
+    snapshot.forEach((doc, index) => {
+      if (index >= offset && index < offset + pageSize) {
+        categories.push({ id: doc.id, ...doc.data() });
+      }
+    });
+
+    res.json({
+      categories,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(total / pageSize),
+      totalItems: total
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch categories' });
+  }
+});
+
 // Get categories by type
-router.get('/type/:type', async (req, res) => {
+router.get('/type/:type', setCacheControl(600), async (req, res) => {
   try {
     const { type } = req.params;
     const snapshot = await categoriesRef.where('type', '==', type).get();
@@ -16,27 +88,12 @@ router.get('/type/:type', async (req, res) => {
     });
     res.json(categories);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch categories by type' });
-  }
-});
-
-// Get category by slug
-router.get('/slug/:slug', async (req, res) => {
-  try {
-    const { slug } = req.params;
-    const snapshot = await categoriesRef.where('slug', '==', slug).get();
-    const categories = [];
-    snapshot.forEach(doc => {
-      categories.push({ id: doc.id, ...doc.data() });
-    });
-    res.json(categories.length > 0 ? categories[0] : null);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch category by slug' });
+    res.status(500).json({ error: 'Failed to fetch categories' });
   }
 });
 
 // Get featured categories
-router.get('/featured', async (req, res) => {
+router.get('/featured', setCacheControl(600), async (req, res) => {
   try {
     const snapshot = await categoriesRef.where('featured', '==', true).get();
     const categories = [];
@@ -49,100 +106,125 @@ router.get('/featured', async (req, res) => {
   }
 });
 
-// Get all categories
-router.get('/', async (req, res) => {
+// Search categories
+router.get('/search', setCacheControl(60), async (req, res) => {
   try {
-    const { type } = req.query;
-    let query = categoriesRef;
+    const { q } = req.query;
+    if (!q) {
+      return res.json([]);
+    }
+
+    const nameSnapshot = await categoriesRef
+      .where('name', '>=', q)
+      .where('name', '<=', q + '\uf8ff')
+      .get();
     
-    if (type) {
-      query = query.where('type', '==', type);
-    }
+    const typeSnapshot = await categoriesRef
+      .where('type', '>=', q)
+      .where('type', '<=', q + '\uf8ff')
+      .get();
 
-    const snapshot = await query.get();
-    const categories = [];
-    snapshot.forEach(doc => {
-      categories.push({ id: doc.id, ...doc.data() });
+    const categories = new Map();
+    
+    nameSnapshot.forEach(doc => {
+      categories.set(doc.id, { id: doc.id, ...doc.data() });
     });
-    res.json(categories);
+    
+    typeSnapshot.forEach(doc => {
+      categories.set(doc.id, { id: doc.id, ...doc.data() });
+    });
+
+    res.json(Array.from(categories.values()));
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch categories' });
+    res.status(500).json({ error: 'Failed to search categories' });
   }
 });
 
-// Get category by ID
-router.get('/:id', async (req, res) => {
+// Create category (Admin only)
+router.post('/', requireAdmin, setCacheControl(0), async (req, res) => {
   try {
-    const doc = await categoriesRef.doc(req.params.id).get();
-    if (!doc.exists) {
-      return res.status(404).json({ error: 'Category not found' });
-    }
-    res.json({ id: doc.id, ...doc.data() });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch category' });
-  }
-});
-
-// Create new category
-router.post('/', async (req, res) => {
-  try {
-    const {
-      name,
-      slug,
-      type,
-      image,
-      description,
-      featured = false
-    } = req.body;
-
-    if (!name || !slug || !type) {
+    const { name, type, slug, featured, description } = req.body;
+    
+    // Validate required fields
+    if (!name || !type || !slug) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    if (!['carType', 'fuelType', 'tag'].includes(type)) {
-      return res.status(400).json({ error: 'Invalid category type' });
+    // Check if slug already exists
+    const slugSnapshot = await categoriesRef.where('slug', '==', slug).get();
+    if (!slugSnapshot.empty) {
+      return res.status(400).json({ error: 'Category with this slug already exists' });
     }
 
     const categoryData = {
       name,
-      slug,
       type,
-      image,
-      description,
-      featured,
-      carCount: 0
+      slug,
+      featured: featured || false,
+      description: description || '',
+      carCount: 0,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
 
     const docRef = await categoriesRef.add(categoryData);
     res.status(201).json({ id: docRef.id, ...categoryData });
   } catch (error) {
+    console.error('Create category error:', error);
     res.status(500).json({ error: 'Failed to create category' });
   }
 });
 
-// Update category
-router.put('/:id', async (req, res) => {
+// Update category (Admin only)
+router.put('/:id', requireAdmin, setCacheControl(0), async (req, res) => {
   try {
+    const { id } = req.params;
     const updates = { ...req.body };
     delete updates.id;
 
-    if (updates.type && !['carType', 'fuelType', 'tag'].includes(updates.type)) {
-      return res.status(400).json({ error: 'Invalid category type' });
+    const docRef = categoriesRef.doc(id);
+    const doc = await docRef.get();
+    
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Category not found' });
     }
 
-    await categoriesRef.doc(req.params.id).update(updates);
-    res.json({ id: req.params.id, ...updates });
+    // If slug is being updated, check for duplicates
+    if (updates.slug && updates.slug !== doc.data().slug) {
+      const slugSnapshot = await categoriesRef
+        .where('slug', '==', updates.slug)
+        .get();
+      if (!slugSnapshot.empty) {
+        return res.status(400).json({ error: 'Category with this slug already exists' });
+      }
+    }
+
+    updates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+    await docRef.update(updates);
+    
+    const updatedDoc = await docRef.get();
+    res.json({ id: updatedDoc.id, ...updatedDoc.data() });
   } catch (error) {
+    console.error('Update category error:', error);
     res.status(500).json({ error: 'Failed to update category' });
   }
 });
 
-// Delete category
-router.delete('/:id', async (req, res) => {
+// Delete category (Admin only)
+router.delete('/:id', requireAdmin, setCacheControl(0), async (req, res) => {
   try {
-    await categoriesRef.doc(req.params.id).delete();
+    const { id } = req.params;
+    const docRef = categoriesRef.doc(id);
+    const doc = await docRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    await docRef.delete();
     res.json({ message: 'Category deleted successfully' });
   } catch (error) {
+    console.error('Delete category error:', error);
     res.status(500).json({ error: 'Failed to delete category' });
   }
 });
