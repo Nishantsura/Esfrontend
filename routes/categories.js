@@ -81,7 +81,19 @@ router.get('/', setCacheControl(600), async (req, res) => {
 router.get('/type/:type', setCacheControl(600), async (req, res) => {
   try {
     const { type } = req.params;
-    const snapshot = await categoriesRef.where('type', '==', type).get();
+    let query = categoriesRef;
+    
+    // If it's a car type (SUV, Sedan, etc.), look for categories with type="carType" and value=type
+    if (['SUV', 'Sedan', 'Hatchback', 'Convertible', 'Coupe'].includes(type)) {
+      query = categoriesRef
+        .where('type', '==', 'carType')
+        .where('value', '==', type);
+    } else {
+      // For other category types (fuelType, tag, etc.)
+      query = categoriesRef.where('type', '==', type);
+    }
+    
+    const snapshot = await query.get();
     const categories = [];
     snapshot.forEach(doc => {
       categories.push({ id: doc.id, ...doc.data() });
@@ -137,6 +149,34 @@ router.get('/search', setCacheControl(60), async (req, res) => {
     res.json(Array.from(categories.values()));
   } catch (error) {
     res.status(500).json({ error: 'Failed to search categories' });
+  }
+});
+
+// Get category by slug
+router.get('/slug/:slug', setCacheControl(600), async (req, res) => {
+  try {
+    const { slug } = req.params;
+    
+    // Query Firestore for the category with matching slug
+    const snapshot = await categoriesRef.where('slug', '==', slug).limit(1).get();
+    
+    if (snapshot.empty) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    const doc = snapshot.docs[0];
+    const category = {
+      id: doc.id,
+      ...doc.data()
+    };
+
+    res.json(category);
+  } catch (error) {
+    console.error('Error getting category by slug:', error);
+    res.status(500).json({ 
+      error: 'Failed to get category',
+      details: error.message 
+    });
   }
 });
 

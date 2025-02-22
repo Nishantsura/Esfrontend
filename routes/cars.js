@@ -1,9 +1,17 @@
 const express = require('express');
 const admin = require('firebase-admin');
+const algoliasearch = require('algoliasearch');
 const router = express.Router();
 
 const db = admin.firestore();
 const carsRef = db.collection('cars');
+
+// Initialize Algolia
+const algoliaClient = algoliasearch(
+  process.env.NEXT_PUBLIC_ALGOLIA_APP_ID,
+  process.env.ALGOLIA_ADMIN_KEY
+);
+const carsIndex = algoliaClient.initIndex('cars');
 
 // Cache-Control middleware
 const setCacheControl = (duration) => (req, res, next) => {
@@ -187,7 +195,8 @@ router.post('/', setCacheControl(0), async (req, res) => {
       tags,
       description,
       images,
-      location
+      location,
+      categories
     } = req.body;
 
     // Validate required fields
@@ -214,10 +223,16 @@ router.post('/', setCacheControl(0), async (req, res) => {
       description,
       images: images || [],
       available: true,
-      location
+      location,
+      categories: categories || []
     };
 
     const docRef = await carsRef.add(carData);
+    const carWithId = { objectID: docRef.id, ...carData };
+    
+    // Index in Algolia
+    await carsIndex.saveObject(carWithId);
+    
     res.status(201).json({ id: docRef.id, ...carData });
   } catch (error) {
     res.status(500).json({ error: 'Failed to create car' });
@@ -231,6 +246,13 @@ router.put('/:id', setCacheControl(0), async (req, res) => {
     delete updates.id; // Remove id from updates if present
 
     await carsRef.doc(req.params.id).update(updates);
+    
+    // Update in Algolia
+    await carsIndex.partialUpdateObject({
+      objectID: req.params.id,
+      ...updates
+    });
+    
     res.json({ id: req.params.id, ...updates });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update car' });
@@ -241,6 +263,10 @@ router.put('/:id', setCacheControl(0), async (req, res) => {
 router.delete('/:id', setCacheControl(0), async (req, res) => {
   try {
     await carsRef.doc(req.params.id).delete();
+    
+    // Delete from Algolia
+    await carsIndex.deleteObject(req.params.id);
+    
     res.json({ message: 'Car deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete car' });
@@ -378,6 +404,82 @@ router.delete('/admin/:id', requireAdmin, setCacheControl(0), async (req, res) =
       error: 'Failed to delete car',
       details: error.message
     });
+  }
+});
+
+// Add a category to a car
+router.post('/:id/categories/:categoryId', requireAdmin, setCacheControl(0), async (req, res) => {
+  try {
+    const { id, categoryId } = req.params;
+    
+    // Get the car document
+    const carDoc = await carsRef.doc(id).get();
+    if (!carDoc.exists) {
+      return res.status(404).json({ error: 'Car not found' });
+    }
+
+    // Get the category document to verify it exists
+    const categoryDoc = await db.collection('categories').doc(categoryId).get();
+    if (!categoryDoc.exists) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    // Get current categories array or initialize if doesn't exist
+    const carData = carDoc.data();
+    const categories = carData.categories || [];
+
+    // Check if category already exists
+    if (categories.includes(categoryId)) {
+      return res.status(400).json({ error: 'Category already added to this car' });
+    }
+
+    // Add the category
+    await carsRef.doc(id).update({
+      categories: admin.firestore.FieldValue.arrayUnion(categoryId)
+    });
+
+    res.json({ message: 'Category added successfully' });
+  } catch (error) {
+    console.error('Error adding category:', error);
+    res.status(500).json({ error: 'Failed to add category' });
+  }
+});
+
+// Remove a category from a car
+router.delete('/:id/categories/:categoryId', requireAdmin, setCacheControl(0), async (req, res) => {
+  try {
+    const { id, categoryId } = req.params;
+    
+    // Get the car document
+    const carDoc = await carsRef.doc(id).get();
+    if (!carDoc.exists) {
+      return res.status(404).json({ error: 'Car not found' });
+    }
+
+    // Remove the category
+    await carsRef.doc(id).update({
+      categories: admin.firestore.FieldValue.arrayRemove(categoryId)
+    });
+
+    res.json({ message: 'Category removed successfully' });
+  } catch (error) {
+    console.error('Error removing category:', error);
+    res.status(500).json({ error: 'Failed to remove category' });
+  }
+});
+
+// Get cars by category
+router.get('/category/:categoryId', setCacheControl(300), async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+    const snapshot = await carsRef.where('categories', 'array-contains', categoryId).get();
+    const cars = [];
+    snapshot.forEach(doc => {
+      cars.push({ id: doc.id, ...doc.data() });
+    });
+    res.json(cars);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch cars by category' });
   }
 });
 
