@@ -169,11 +169,11 @@ export function CarDialog({ car, open, onOpenChange, onSave }: CarDialogProps) {
       model: formData.model?.trim() || formData.name.trim(), // Use name as fallback for model
       year: formData.year || new Date().getFullYear(),
       transmission: formData.transmission || 'Automatic',
-      fuel: formData.fuel || 'Petrol', // Server expects 'fuel', not 'fuelType'
+      fuelType: formData.fuel || 'Petrol', // Backend expects 'fuelType'
       dailyPrice: formData.dailyPrice || 0,
       
       // Optional fields that server accepts
-      category: formData.category || 'Sedan', // Server expects 'category', not 'type'
+      type: formData.category || 'Sedan', // Backend expects 'type' not 'category'
       mileage: formData.mileage || 0,
       images: formData.images || [],
       description: formData.description || '',
@@ -190,7 +190,8 @@ export function CarDialog({ car, open, onOpenChange, onSave }: CarDialogProps) {
       model: !!carData.model,
       year: !!carData.year,
       transmission: !!carData.transmission,
-      fuel: !!carData.fuel,
+      fuelType: !!carData.fuelType,
+      type: !!carData.type,
       dailyPrice: !!carData.dailyPrice
     });
     
