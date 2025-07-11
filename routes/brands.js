@@ -5,6 +5,39 @@ const router = express.Router();
 const db = admin.firestore();
 const brandsRef = db.collection('brands');
 
+// Admin middleware
+const requireAdmin = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    console.log('Auth header:', authHeader); // Debug log
+
+    if (!authHeader?.startsWith('Bearer ')) {
+      console.log('No bearer token'); // Debug log
+      return res.status(401).json({ error: 'No bearer token' });
+    }
+
+    const token = authHeader.split('Bearer ')[1];
+    console.log('Verifying token...'); // Debug log
+    
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    console.log('Decoded token:', decodedToken); // Debug log
+    
+    if (!decodedToken.email?.endsWith('@esrent.ae')) {
+      console.log('Not an esrent email:', decodedToken.email); // Debug log
+      return res.status(403).json({ error: 'Not an authorized email domain' });
+    }
+
+    req.user = decodedToken;
+    next();
+  } catch (error) {
+    console.error('Auth error:', error);
+    res.status(401).json({ 
+      error: 'Authentication failed',
+      details: error.message 
+    });
+  }
+};
+
 // Get brand by slug
 router.get('/slug/:slug', async (req, res) => {
   try {
@@ -62,13 +95,18 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create new brand
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
+  console.log('Brand creation request received from user:', req.user?.email);
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  
   try {
     const { name, logo, slug, featured = false } = req.body;
     if (!name || !logo || !slug) {
+      console.log('Validation failed. Missing fields:', { name: !!name, logo: !!logo, slug: !!slug });
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    console.log('Validation passed. Creating brand data...');
     const brandData = {
       name,
       logo,
@@ -77,15 +115,21 @@ router.post('/', async (req, res) => {
       carCount: 0
     };
 
+    console.log('Saving brand to Firebase:', JSON.stringify(brandData, null, 2));
     const docRef = await brandsRef.add(brandData);
+    console.log('Brand created successfully:', docRef.id);
     res.status(201).json({ id: docRef.id, ...brandData });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create brand' });
+    console.error('Error creating brand:', error);
+    res.status(500).json({ 
+      error: 'Failed to create brand',
+      details: error.message 
+    });
   }
 });
 
 // Update brand
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAdmin, async (req, res) => {
   try {
     const { name, logo, slug, featured, carCount } = req.body;
     const updates = {};
@@ -104,7 +148,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete brand
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     await brandsRef.doc(req.params.id).delete();
     res.json({ message: 'Brand deleted successfully' });

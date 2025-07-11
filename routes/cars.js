@@ -36,8 +36,8 @@ const requireAdmin = async (req, res, next) => {
     const decodedToken = await admin.auth().verifyIdToken(token);
     console.log('Decoded token:', decodedToken); // Debug log
     
-    if (!decodedToken.email?.endsWith('@autoluxe.com')) {
-      console.log('Not an autoluxe email:', decodedToken.email); // Debug log
+    if (!decodedToken.email?.endsWith('@esrent.ae')) {
+      console.log('Not an esrent email:', decodedToken.email); // Debug log
       return res.status(403).json({ error: 'Not an authorized email domain' });
     }
 
@@ -176,7 +176,10 @@ router.get('/:id', setCacheControl(300), async (req, res) => {
 });
 
 // Create new car
-router.post('/', setCacheControl(0), async (req, res) => {
+router.post('/', requireAdmin, setCacheControl(0), async (req, res) => {
+  console.log('Car creation request received from user:', req.user?.email);
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  
   try {
     const {
       name,
@@ -201,8 +204,11 @@ router.post('/', setCacheControl(0), async (req, res) => {
 
     // Validate required fields
     if (!name || !brand || !transmission || !fuelType || !type) {
+      console.log('Validation failed. Missing fields:', { name: !!name, brand: !!brand, transmission: !!transmission, fuelType: !!fuelType, type: !!type });
       return res.status(400).json({ error: 'Missing required fields' });
     }
+
+    console.log('Validation passed. Creating car data...');
 
     const carData = {
       name,
@@ -227,20 +233,32 @@ router.post('/', setCacheControl(0), async (req, res) => {
       categories: categories || []
     };
 
+    console.log('Saving car to Firebase:', JSON.stringify(carData, null, 2));
     const docRef = await carsRef.add(carData);
     const carWithId = { objectID: docRef.id, ...carData };
     
     // Index in Algolia
-    await carsIndex.saveObject(carWithId);
+    try {
+      await carsIndex.saveObject(carWithId);
+      console.log('Car indexed in Algolia successfully');
+    } catch (algoliaError) {
+      console.error('Algolia indexing failed:', algoliaError);
+      // Continue execution - Algolia failure shouldn't break car creation
+    }
     
+    console.log('Car created successfully:', docRef.id);
     res.status(201).json({ id: docRef.id, ...carData });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create car' });
+    console.error('Error creating car:', error);
+    res.status(500).json({ 
+      error: 'Failed to create car',
+      details: error.message 
+    });
   }
 });
 
 // Update car
-router.put('/:id', setCacheControl(0), async (req, res) => {
+router.put('/:id', requireAdmin, setCacheControl(0), async (req, res) => {
   try {
     const updates = { ...req.body };
     delete updates.id; // Remove id from updates if present
@@ -260,7 +278,7 @@ router.put('/:id', setCacheControl(0), async (req, res) => {
 });
 
 // Delete car
-router.delete('/:id', setCacheControl(0), async (req, res) => {
+router.delete('/:id', requireAdmin, setCacheControl(0), async (req, res) => {
   try {
     await carsRef.doc(req.params.id).delete();
     
