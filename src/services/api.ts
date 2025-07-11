@@ -3,10 +3,10 @@ import { Category } from '@/types/category';
 import { Brand } from '@/types/brand';
 import { auth } from '@/lib/firebase';
 
-// Use local Next.js API routes instead of external backend
-const API_BASE_URL = '';
-// console.log('API_BASE_URL:', API_BASE_URL);
-// console.log('NEXT_PUBLIC_BACKEND_URL:', process.env.NEXT_PUBLIC_BACKEND_URL);
+// Use Render backend server instead of local Next.js API routes
+const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+console.log('API_BASE_URL:', API_BASE_URL);
+console.log('NEXT_PUBLIC_BACKEND_URL:', process.env.NEXT_PUBLIC_BACKEND_URL);
 
 // Car API endpoints
 export const carAPI = {
