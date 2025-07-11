@@ -166,7 +166,6 @@ export function CarDialog({ car, open, onOpenChange, onSave }: CarDialogProps) {
       // Required fields for server
       name: formData.name.trim(),
       brand: formData.brand.trim(),
-      model: formData.model?.trim() || formData.name.trim(), // Use name as fallback for model
       year: formData.year || new Date().getFullYear(),
       transmission: formData.transmission || 'Automatic',
       fuelType: formData.fuel || 'Petrol', // Backend expects 'fuelType'
@@ -178,8 +177,8 @@ export function CarDialog({ car, open, onOpenChange, onSave }: CarDialogProps) {
       images: formData.images || [],
       description: formData.description || '',
       features: formData.features || [],
-      isAvailable: formData.isAvailable ?? true, // Server expects 'isAvailable'
-      isFeatured: formData.isFeatured ?? false, // Server expects 'isFeatured'
+      available: formData.isAvailable ?? true, // Backend expects 'available' not 'isAvailable'
+      featured: formData.isFeatured ?? false, // Backend expects 'featured' not 'isFeatured'
     };
     
     // Debug: Log the exact data being sent to backend
@@ -187,12 +186,13 @@ export function CarDialog({ car, open, onOpenChange, onSave }: CarDialogProps) {
     console.log('🔍 Required fields check:', {
       name: !!carData.name,
       brand: !!carData.brand,
-      model: !!carData.model,
       year: !!carData.year,
       transmission: !!carData.transmission,
       fuelType: !!carData.fuelType,
       type: !!carData.type,
-      dailyPrice: !!carData.dailyPrice
+      dailyPrice: !!carData.dailyPrice,
+      available: !!carData.available,
+      featured: !!carData.featured
     });
     
     await onSave(carData);
