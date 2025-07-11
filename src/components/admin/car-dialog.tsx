@@ -182,6 +182,18 @@ export function CarDialog({ car, open, onOpenChange, onSave }: CarDialogProps) {
       isFeatured: formData.isFeatured ?? false, // Server expects 'isFeatured'
     };
     
+    // Debug: Log the exact data being sent to backend
+    console.log('🚗 Frontend sending car data:', JSON.stringify(carData, null, 2));
+    console.log('🔍 Required fields check:', {
+      name: !!carData.name,
+      brand: !!carData.brand,
+      model: !!carData.model,
+      year: !!carData.year,
+      transmission: !!carData.transmission,
+      fuel: !!carData.fuel,
+      dailyPrice: !!carData.dailyPrice
+    });
+    
     await onSave(carData);
   };
 
